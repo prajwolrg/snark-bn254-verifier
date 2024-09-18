@@ -5,35 +5,38 @@ use sp1_sdk::{
     install::try_install_circuit_artifacts, utils, ProverClient, SP1ProofWithPublicValues, SP1Stdin,
 };
 
+use snark_bn254_verifier::PlonkVerifier;
+use substrate_bn::Fr;
+
 /// The ELF (executable and linkable format) file for the Succinct RISC-V zkVM.
 pub const FIBONACCI_ELF: &[u8] = include_bytes!("../../fibonacci-riscv32im-succinct-zkvm-elf");
 pub const ELF: &[u8] = include_bytes!("../../program/elf/riscv32im-succinct-zkvm-elf");
 
 fn main() {
-    // Setup logging for the application
-    utils::setup_logger();
+    // // Setup logging for the application
+    // utils::setup_logger();
 
-    // Set the input value for the Fibonacci calculation
-    let n = 20;
+    // // Set the input value for the Fibonacci calculation
+    // let n = 20;
 
-    // Prepare the input for the zkVM
-    let mut stdin = SP1Stdin::new();
-    stdin.write(&n);
+    // // Prepare the input for the zkVM
+    // let mut stdin = SP1Stdin::new();
+    // stdin.write(&n);
 
-    // Initialize the prover client
-    let client = ProverClient::new();
-    let (pk, _) = client.setup(FIBONACCI_ELF);
+    // // Initialize the prover client
+    // let client = ProverClient::new();
+    // let (pk, _) = client.setup(FIBONACCI_ELF);
 
-    // Generate a proof for the Fibonacci program
-    let proof = client
-        .prove(&pk, stdin)
-        .plonk()
-        .run()
-        .expect("Proving failed");
+    // // Generate a proof for the Fibonacci program
+    // let proof = client
+    //     .prove(&pk, stdin)
+    //     .plonk()
+    //     .run()
+    //     .expect("Proving failed");
 
-    // Save the generated proof to a binary file
-    let proof_file = "proof.bin";
-    proof.save(proof_file).unwrap();
+    // // Save the generated proof to a binary file
+    // let proof_file = "proof.bin";
+    // proof.save(proof_file).unwrap();
 
     // Retrieve the verification key
     let vk_dir_entry = try_install_circuit_artifacts();
@@ -61,6 +64,16 @@ fn main() {
         .unwrap()
         .to_bytes_be();
 
+    // This works
+    // run_on_guest(&raw_proof, &vk, &vkey_hash, &committed_values_digest);
+
+    // This fails
+    run_on_host(&raw_proof, &vk, &vkey_hash, &committed_values_digest);
+}
+
+fn run_on_guest(raw_proof: &[u8], vk: &[u8], vkey_hash: &[u8], committed_values_digest: &[u8]) {
+    let client = ProverClient::new();
+
     // Prepare input for the verifier program
     let mut stdin = SP1Stdin::new();
     stdin.write_slice(&raw_proof);
@@ -81,4 +94,24 @@ fn main() {
     client.verify(&proof, &vk).expect("verification failed");
 
     println!("Successfully verified proof for the program!")
+}
+
+fn run_on_host(raw_proof: &[u8], vk: &[u8], vkey_hash: &[u8], committed_values_digest: &[u8]) {
+    let vkey_hash = Fr::from_slice(&vkey_hash).expect("Unable to read vkey_hash");
+    let committed_values_digest =
+        Fr::from_slice(&committed_values_digest).expect("Unable to read committed_values_digest");
+
+    println!("cycle-tracker-start: verify");
+    let result = PlonkVerifier::verify(&raw_proof, &vk, &[vkey_hash, committed_values_digest]);
+    println!("cycle-tracker-end: verify");
+
+    match result {
+        Ok(true) => {
+            println!("Proof is valid");
+        }
+        Ok(false) | Err(_) => {
+            println!("Proof is invalid");
+            panic!();
+        }
+    }
 }
